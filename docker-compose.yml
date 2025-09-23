@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  chatbot_backend:
+    image: chatbot_backend:latest
+    container_name: chatbot_backend
+    ports:
+      - "${CHATBOT_BACKEND_PORT}:${BACKEND_INTERNAL_PORT}"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres_db:${POSTGRES_INTERNAL_PORT}/${POSTGRES_DB}
+      - ENVIRONMENT=${ENVIRONMENT}
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+    networks:
+      - chatbot_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${BACKEND_INTERNAL_PORT}/health"]
+      interval: ${HEALTH_CHECK_INTERVAL}
+      timeout: ${HEALTH_CHECK_TIMEOUT}
+      retries: ${HEALTH_CHECK_RETRIES}
+      start_period: ${BACKEND_START_PERIOD}
+
+  chatbot_ui:
+    image: chatbot_ui:latest
+    container_name: chatbot_ui
+    ports:
+      - "${CHATBOT_UI_PORT}:${UI_INTERNAL_PORT}"
+    depends_on:
+      chatbot_backend:
+        condition: service_healthy
+    networks:
+      - chatbot_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${UI_INTERNAL_PORT}/"]
+      interval: ${HEALTH_CHECK_INTERVAL}
+      timeout: ${HEALTH_CHECK_TIMEOUT}
+      retries: ${HEALTH_CHECK_RETRIES}
+      start_period: ${UI_START_PERIOD}
+
+  postgres_db:
+    image: postgres:15
+    container_name: postgres_db
+    ports:
+      - "${POSTGRES_DB_PORT}:${POSTGRES_INTERNAL_PORT}"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - chatbot_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: ${HEALTH_CHECK_INTERVAL}
+      timeout: ${HEALTH_CHECK_TIMEOUT}
+      retries: ${HEALTH_CHECK_RETRIES}
+      start_period: ${DB_START_PERIOD}
+
+networks:
+  chatbot_net:
+    driver: bridge
+    name: ${NETWORK_NAME}
+
+volumes:
+  postgres_data:
+    driver: local
