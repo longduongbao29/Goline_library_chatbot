@@ -113,7 +113,7 @@ class Configures:
         """Load database configuration from environment variables"""
         return DatabaseConfig(
             host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=os.getenv("POSTGRES_INTERNAL_PORT", "1236"),
+            port=int(os.getenv("POSTGRES_INTERNAL_PORT", "1236")),
             user=os.getenv("POSTGRES_USER", "postgres"),
             password=os.getenv("POSTGRES_PASSWORD", "password"),
             name=os.getenv("POSTGRES_DB", "chatbot_db")
