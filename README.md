@@ -26,13 +26,15 @@ sh build-all.sh
 OPENAI_API_KEY=your_openai_api_key
 ```
 3. Chạy docker compose
+```bash
 docker compose up -d
-
+```
 4. Truy cập endpoint http://localhost:1235/ để truy cập demo ui
 ![alt text](image.png)
 
 ## 🏗️ Kiến trúc hệ thống
 
+```
 Goline_library_chatbot/
 ├── build-all.sh
 ├── chabot_ui
