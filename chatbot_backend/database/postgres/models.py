@@ -61,7 +61,6 @@ class Order(Base):
     address = Column(String(500), nullable=False)
     book_id = Column(Integer, ForeignKey('books.book_id'), nullable=False)
     quantity = Column(Integer, nullable=False, default=1)
-    total_amount = Column(Float, nullable=False)
     status = Column(Enum(OrderStatus), nullable=False, default=OrderStatus.PENDING)
     order_date = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -82,7 +81,6 @@ class Order(Base):
             'book_id': self.book_id,
             'quantity': self.quantity,
             'status': self.status.value if self.status else None,
-            'total_amount': self.total_amount,
             'order_date': self.order_date.isoformat() if self.order_date else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'book': self.book.to_dict() if self.book else None

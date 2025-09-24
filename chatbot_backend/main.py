@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
 from api.v1.completions import router as completions_router
+from api.v1.order import router as order_router
 from utils.logger import Logger
 from config.configures import config
 
@@ -41,6 +42,7 @@ app.add_middleware(
 
 # Include API routes
 app.include_router(completions_router)
+app.include_router(order_router, prefix="/api/v1")
 
 # Health check endpoint
 @app.get("/health")

@@ -166,7 +166,6 @@ class OrderRepository:
                     logger.error(f"Insufficient stock. Available: {book.stock}, Requested: {quantity}")
                     return None
                 
-                total_amount = book.price * quantity
                 
                 order = Order(
                     customer_name=customer_name,
@@ -174,7 +173,6 @@ class OrderRepository:
                     address=address,
                     book_id=book_id,
                     quantity=quantity,
-                    total_amount=total_amount,
                     status=OrderStatus.PENDING
                 )
                 
@@ -277,8 +275,6 @@ class OrderRepository:
                 total_orders = session.query(Order).count()
                 total_revenue = session.query(Order).filter(
                     Order.status != OrderStatus.CANCELLED
-                ).with_entities(
-                    session.query(Order.total_amount).label('total')
                 ).scalar() or 0
                 
                 status_counts = {}
@@ -308,3 +304,11 @@ class BookstoreRepository:
     def close(self):
         """Close database connection"""
         self.db.close_connection()
+        
+_repo = None
+def get_repository():
+    """Get or create repository instance"""
+    global _repo
+    if _repo is None:
+        _repo = BookstoreRepository()
+    return _repo

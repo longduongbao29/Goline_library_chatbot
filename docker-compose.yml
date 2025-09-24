@@ -1,14 +1,26 @@
 version: '3.8'
 
 services:
-  chatbot_backend:
-    image: chatbot_backend:latest
-    container_name: chatbot_backend
+  goline-chatbot-backend:
+    image: goline-chatbot-backend:latest
+    container_name: goline-chatbot-backend
     ports:
       - "${CHATBOT_BACKEND_PORT}:${BACKEND_INTERNAL_PORT}"
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres_db:${POSTGRES_INTERNAL_PORT}/${POSTGRES_DB}
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres_db:5432/${POSTGRES_DB}
+      - POSTGRES_INTERNAL_PORT=${POSTGRES_INTERNAL_PORT}
       - ENVIRONMENT=${ENVIRONMENT}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - LLM_PROVIDER=${LLM_PROVIDER}
+      - TEMPERATURE=${TEMPERATURE}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=${GROQ_MODEL}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LLM_MODEL=${LLM_MODEL}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=postgres_db
     depends_on:
       postgres_db:
         condition: service_healthy
@@ -16,25 +28,25 @@ services:
       - chatbot_net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${BACKEND_INTERNAL_PORT}/health"]
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health', timeout=5).raise_for_status()"]
       interval: ${HEALTH_CHECK_INTERVAL}
       timeout: ${HEALTH_CHECK_TIMEOUT}
       retries: ${HEALTH_CHECK_RETRIES}
       start_period: ${BACKEND_START_PERIOD}
 
-  chatbot_ui:
-    image: chatbot_ui:latest
-    container_name: chatbot_ui
+  goline-chatbot-ui:
+    image: goline-chatbot-ui:latest
+    container_name: goline-chatbot-ui
     ports:
       - "${CHATBOT_UI_PORT}:${UI_INTERNAL_PORT}"
     depends_on:
-      chatbot_backend:
+      goline-chatbot-backend:
         condition: service_healthy
     networks:
       - chatbot_net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${UI_INTERNAL_PORT}/"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
       interval: ${HEALTH_CHECK_INTERVAL}
       timeout: ${HEALTH_CHECK_TIMEOUT}
       retries: ${HEALTH_CHECK_RETRIES}

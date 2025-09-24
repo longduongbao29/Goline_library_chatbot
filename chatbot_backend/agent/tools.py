@@ -1,34 +1,22 @@
 from langchain_core.tools import tool
-from langchain_core.prompts import ChatPromptTemplate
-from typing import Optional, List, Dict, Any
+from typing import Optional
 import json
 import sys
 import os
 
-from llm.llm_provider import get_chat_model
-from agent.prompts import extract_info_prompt
-from agent.structured_output import OrderInfo
-from agent.utils import format_message
+from database.postgres.repository import get_repository
 # Add parent directories to path for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.append(parent_dir)
 
-from database.postgres.repository import BookstoreRepository
-from database.postgres.models import Book, Order, OrderStatus
-
 from utils.logger import Logger
 logger = Logger(__name__).get_logger()
 # Global repository instance
-_repo = None
 
-def get_repository():
-    """Get or create repository instance"""
-    global _repo
-    if _repo is None:
-        _repo = BookstoreRepository()
-    return _repo
+
 repo = get_repository()
+
 def search_book_func(
     title: Optional[str] = None,
     author: Optional[str] = None, 
@@ -70,16 +58,20 @@ def search_book_func(
     if title or author or category:
         # Use search_books method for text search
         search_term = None
+        category_filter = None
+        
         if title:
             search_term = title
         elif author:
             search_term = author
-        elif category:
-            search_term = category
+        
+        # Category is handled separately to avoid confusion
+        if category:
+            category_filter = category
         
         books = repo.books.search_books(
             search_term=search_term,
-            category=category if category and not search_term == category else None,
+            category=category_filter,
             min_price=min_price,
             max_price=max_price
         )
@@ -87,23 +79,11 @@ def search_book_func(
         # Get all books with pagination if no specific search term
         books = repo.books.get_all_books(limit=max_results)
     
-    # Filter by stock and other criteria
+    # Filter by stock only (other filters already handled by repository)
     filtered_books = []
     for book in books:
-        # Stock filter
+        # Stock filter - only filter that needs to be applied here
         if book.stock < min_stock:
-            continue
-            
-        # Additional title filter (case insensitive partial match)
-        if title and title.lower() not in book.title.lower():
-            continue
-            
-        # Additional author filter (case insensitive partial match)  
-        if author and author.lower() not in book.author.lower():
-            continue
-            
-        # Additional category filter (case insensitive partial match)
-        if category and category.lower() not in book.category.lower():
             continue
         
         filtered_books.append(book)
@@ -135,6 +115,7 @@ def search_book_func(
         return result
     else:
         return None
+
 @tool
 def search_book(
     title: Optional[str] = None,
@@ -177,16 +158,20 @@ def search_book(
         if title or author or category:
             # Use search_books method for text search
             search_term = None
+            category_filter = None
+            
             if title:
                 search_term = title
             elif author:
                 search_term = author
-            elif category:
-                search_term = category
+            
+            # Category is handled separately to avoid confusion
+            if category:
+                category_filter = category
             
             books = repo.books.search_books(
                 search_term=search_term,
-                category=category if category and not search_term == category else None,
+                category=category_filter,
                 min_price=min_price,
                 max_price=max_price
             )
@@ -194,23 +179,11 @@ def search_book(
             # Get all books with pagination if no specific search term
             books = repo.books.get_all_books(limit=max_results)
         
-        # Filter by stock and other criteria
+        # Filter by stock only (other filters already handled by repository)
         filtered_books = []
         for book in books:
-            # Stock filter
+            # Stock filter - only filter that needs to be applied here
             if book.stock < min_stock:
-                continue
-                
-            # Additional title filter (case insensitive partial match)
-            if title and title.lower() not in book.title.lower():
-                continue
-                
-            # Additional author filter (case insensitive partial match)  
-            if author and author.lower() not in book.author.lower():
-                continue
-                
-            # Additional category filter (case insensitive partial match)
-            if category and category.lower() not in book.category.lower():
                 continue
             
             filtered_books.append(book)
@@ -281,177 +254,3 @@ def search_book(
         }
         
         return json.dumps(error_result, ensure_ascii=False, indent=2)
-def get_follow_up_question(info):
-    dict_ = {
-        "customer_name": "Tên đầy đủ của bạn là gì?",
-        "phone": "Số điện thoại của bạn là gì?",
-        "address": "Địa chỉ giao hàng của bạn là gì?",
-        "book_title": "Bạn muốn đặt sách nào?",
-        "quantity": "Bạn muốn đặt bao nhiêu cuốn?"
-    }
-    if info in dict_:
-        return dict_[info]
-    else:
-        return "Bạn vui lòng cung cấp thêm thông tin chi tiết."
-@tool 
-def order_book(
-    customer_name: str = None, 
-    phone: str = None, 
-    address: str = None, 
-    book_title: str = None, 
-    quantity: int = None
-) -> str:
-    """
-    Create a new order for a customer to purchase books.
-    
-    Args:
-        customer_name: Full name of the customer
-        phone: Customer's phone number (Vietnamese format, e.g., 0901234567)
-        address: Full delivery address including street, district, city
-        book_title: Title of the book to order (get from search_book results)
-        quantity: Number of books to order (default: 1)
-
-    Returns:
-        JSON string with order confirmation details or error information
-        
-    """
-    state = {
-        "customer_name": customer_name,
-        "phone": phone,
-        "address": address,
-        "book_title": book_title,
-        "quantity": quantity ,
-        "book_id": None,
-        "author": None,
-        "price": None,
-        "category": None,
-    }
-    if book_title:
-        # Search for the book by title
-        search_result_json = search_book(title=book_title, max_results=1)
-        search_result = json.loads(search_result_json)
-        
-        if search_result.get("status") == "success" and search_result.get("books"):
-            book_info = search_result["books"][0]
-            state["book_id"] = book_info["book_id"]
-            state["author"] = book_info["author"]
-            state["price"] = book_info["price"]
-            state["category"] = book_info["category"]
-        else:
-            return json.dumps({
-                "status": "error",
-                "message": f"Không tìm thấy sách với tiêu đề '{book_title}'. Vui lòng kiểm tra lại tên sách."
-            }, ensure_ascii=False, indent=2)
-    
-def create_order(customer_name: str, phone: str, address: str, book_id: int, quantity: int = 1) -> str:
-    """
-    Create a new order for a customer to purchase books.
-    
-    Args:
-        customer_name: Full name of the customer
-        phone: Customer's phone number (Vietnamese format, e.g., 0901234567)
-        address: Full delivery address including street, district, city
-        book_id: ID of the book to order (get from search_book results)
-        quantity: Number of books to order (default: 1)
-        
-    Returns:
-        JSON string with order confirmation details or error information
-        
-    Examples:
-        - create_order("Nguyễn Văn A", "0901234567", "123 Lê Lợi, Q1, TP.HCM", 1, 2)
-        - create_order("Trần Thị B", "0987654321", "456 Nguyễn Huệ, Q3, TP.HCM", 5, 1)
-    """
-    try:
-   
-        
-        # Validate input
-        if not customer_name or not customer_name.strip():
-            return json.dumps({
-                "status": "error",
-                "message": "Tên khách hàng không được để trống"
-            }, ensure_ascii=False, indent=2)
-        
-        if not phone or not phone.strip():
-            return json.dumps({
-                "status": "error", 
-                "message": "Số điện thoại không được để trống"
-            }, ensure_ascii=False, indent=2)
-        
-        if not address or not address.strip():
-            return json.dumps({
-                "status": "error",
-                "message": "Địa chỉ giao hàng không được để trống"
-            }, ensure_ascii=False, indent=2)
-        
-        if quantity <= 0:
-            return json.dumps({
-                "status": "error",
-                "message": "Số lượng sách phải lớn hơn 0"
-            }, ensure_ascii=False, indent=2)
-        
-        # Check if book exists and has enough stock
-        book = repo.books.get_book_by_id(book_id)
-        if not book:
-            return json.dumps({
-                "status": "error",
-                "message": f"Không tìm thấy sách với ID {book_id}. Vui lòng kiểm tra lại thông tin sách."
-            }, ensure_ascii=False, indent=2)
-        
-        if book.stock < quantity:
-            return json.dumps({
-                "status": "error",
-                "message": f"Không đủ hàng tồn kho. Hiện tại chỉ còn {book.stock} cuốn '{book.title}', bạn đang yêu cầu {quantity} cuốn."
-            }, ensure_ascii=False, indent=2)
-        
-        # Create the order
-        order = repo.orders.create_order(
-            customer_name=customer_name.strip(),
-            phone=phone.strip(),
-            address=address.strip(),
-            book_id=book_id,
-            quantity=quantity
-        )
-        
-        if order:
-            total_amount = book.price * quantity
-            
-            result = {
-                "status": "success",
-                "message": "Đặt hàng thành công!",
-                "order_details": {
-                    "order_id": order.order_id,
-                    "customer_name": order.customer_name,
-                    "phone": order.phone,
-                    "address": order.address,
-                    "book": {
-                        "book_id": book.book_id,
-                        "title": book.title,
-                        "author": book.author,
-                        "price": book.price
-                    },
-                    "quantity": quantity,
-                    "total_amount": total_amount,
-                    "status": "Đang chờ xử lý",
-                    "order_date": order.order_date.strftime("%d/%m/%Y %H:%M:%S") if order.order_date else None
-                },
-                "next_steps": [
-                    "Chúng tôi sẽ liên hệ với bạn trong vòng 24h để xác nhận đơn hàng",
-                    "Thời gian giao hàng dự kiến: 2-3 ngày làm việc", 
-                    "Bạn có thể thanh toán khi nhận hàng (COD)"
-                ]
-            }
-            
-            return json.dumps(result, ensure_ascii=False, indent=2)
-        else:
-            return json.dumps({
-                "status": "error",
-                "message": "Có lỗi xảy ra khi tạo đơn hàng. Vui lòng thử lại sau."
-            }, ensure_ascii=False, indent=2)
-            
-    except Exception as e:
-        error_result = {
-            "status": "error", 
-            "message": f"Lỗi hệ thống khi tạo đơn hàng: {str(e)}"
-        }
-        return json.dumps(error_result, ensure_ascii=False, indent=2)
-

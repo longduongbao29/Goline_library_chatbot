@@ -7,7 +7,8 @@ function generateUserId() {
 }
 
 // ===== Global Variables =====
-let apiUrl = 'http://localhost:1234';
+// Use empty string for relative URLs since nginx will proxy to backend
+let apiUrl = '';
 let userId = generateUserId();
 let isTyping = false;
 
@@ -133,11 +134,12 @@ async function sendMessageToAPI(message) {
         body: JSON.stringify(requestData)
     });
 
+    json_response = await response.json();
     if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
     }
-
-    return await response.json();
+    console.log(json_response)
+    return json_response;
 }
 
 // ===== UI Functions =====
@@ -230,27 +232,103 @@ function formatMessageText(text) {
 
 function parseConfirmationData(confirmData) {
     try {
-        // Parse the data from the string format
-        const info = {};
+        console.log('Raw confirmation data:', confirmData);
+        console.log('Raw data type:', typeof confirmData);
 
-        // Extract values using more flexible regex patterns
-        const bookTitleMatch = confirmData.match(/book_title:\s*[{]?["']?(.*?)["']?[,}]?/);
-        const quantityMatch = confirmData.match(/quantity:\s*[{]?["']?(.*?)["']?[,}]?/);
-        const customerNameMatch = confirmData.match(/customer_name:\s*[{]?["']?(.*?)["']?[,}]?/);
-        const phoneMatch = confirmData.match(/phone:\s*[{]?["']?(.*?)["']?[,}]?/);
-        const addressMatch = confirmData.match(/address:\s*[{]?["']?(.*?)["']?[,}]?/);
+        // Clean and normalize the string first
+        let cleanedData = confirmData.trim();
 
-        info.book_title = bookTitleMatch ? bookTitleMatch[1].trim() : '';
-        info.quantity = quantityMatch ? quantityMatch[1].trim() : '';
-        info.customer_name = customerNameMatch ? customerNameMatch[1].trim() : '';
-        info.phone = phoneMatch ? phoneMatch[1].trim() : '';
-        info.address = addressMatch ? addressMatch[1].trim() : '';
+        // Remove extra whitespace and newlines
+        cleanedData = cleanedData.replace(/\s+/g, ' ');
 
-        // Clean up empty strings and special characters
+        // Fix common JSON format issues
+        cleanedData = cleanedData.replace(/\n/g, '').replace(/\r/g, '');
+
+        // Try to fix malformed JSON by adding proper quotes and structure
+        // Handle cases like: book_title: "sách của …address: "Hà nội"
+        cleanedData = cleanedData.replace(/([a-zA-Z_]+):\s*"([^"]*?)…([a-zA-Z_]+):\s*"([^"]*?)"/g,
+            '$1: "$2", $3: "$4"');
+
+        // Add quotes around unquoted keys and values
+        cleanedData = cleanedData.replace(/([a-zA-Z_]+):\s*([^",{}\n]+?)(?=[,}]|$)/g, '"$1": "$2"');
+
+        // Handle quoted values that are already correct
+        cleanedData = cleanedData.replace(/([a-zA-Z_]+):\s*"([^"]*?)"/g, '"$1": "$2"');
+
+        // Ensure proper JSON structure
+        if (!cleanedData.startsWith('{')) {
+            cleanedData = '{' + cleanedData;
+        }
+        if (!cleanedData.endsWith('}')) {
+            cleanedData = cleanedData + '}';
+        }
+
+        // Fix trailing commas
+        cleanedData = cleanedData.replace(/,\s*}/g, '}');
+
+        console.log('Cleaned confirmation data:', cleanedData);
+
+        // Try to parse as JSON first
+        let info;
+        try {
+            info = JSON.parse(cleanedData);
+        } catch (jsonError) {
+            console.warn('JSON parse failed, using regex extraction:', jsonError);
+
+            // Fallback to regex extraction for malformed JSON
+            info = {};
+
+            // Extract values using more robust regex patterns
+            const patterns = {
+                book_id: /(?:book_id|id|ma_sach):\s*["{]?([^"{},:]*?)(?:["},]|$)/i,
+                book_title: /(?:book_title|title|sach|book):\s*["{]?([^"{},:]*?)(?:["},]|$)/i,
+                author: /(?:author|tac_gia|author_name):\s*["{]?([^"{},:]*?)(?:["},]|$)/i,
+                category: /(?:category|danh_muc|the_loai):\s*["{]?([^"{},:]*?)(?:["},]|$)/i,
+                quantity: /(?:quantity|so_luong|amount):\s*["{]?([^"{},:]*?)(?:["},]|$)/i,
+                customer_name: /(?:customer_name|name|ten|ho_ten|fullname|user_name):\s*["{]?([^"{},:]*?)(?:["},]|$)/i,
+                phone: /(?:phone|sdt|dien_thoai|mobile|telephone):\s*["{]?([^"{},:]*?)(?:["},]|$)/i,
+                address: /(?:address|dia_chi|location):\s*["{]?([^"{},:]*?)(?:["},]|$)/i,
+                price: /(?:price|cost|gia|thanh_tien):\s*["{]?([^"{},:]*?)(?:["},]|$)/i
+            };
+
+            for (const [key, pattern] of Object.entries(patterns)) {
+                const match = confirmData.match(pattern);
+                const value = match ? match[1].trim().replace(/["{},]/g, '') : '';
+                info[key] = value;
+                console.log(`Extracted ${key}:`, match ? `"${value}" (matched: "${match[0]}")` : 'NO MATCH');
+            }
+        }
+
+        // Clean up extracted values
         Object.keys(info).forEach(key => {
-            if (info[key] === '""' || info[key] === "''" || info[key] === 'None' || info[key] === 'null') {
+            if (typeof info[key] === 'string') {
+                // Remove unwanted characters and ellipsis
+                info[key] = info[key].replace(/[…]/g, '').trim();
+                // Remove quotes if they exist
+                info[key] = info[key].replace(/^["']|["']$/g, '');
+            }
+        });
+
+        console.log('Parsed confirmation info:', info);
+
+        // Clean up invalid values
+        Object.keys(info).forEach(key => {
+            if (info[key] === '""' || info[key] === "''" || info[key] === 'None' || info[key] === 'null' || info[key] === 'undefined') {
                 info[key] = '';
             }
+        });
+
+        // Debug: Show all parsed fields
+        console.log('Final confirmation data:', {
+            book_id: info.book_id,
+            book_title: info.book_title,
+            customer_name: info.customer_name || info.name || info.ten,
+            phone: info.phone || info.sdt,
+            address: info.address || info.dia_chi,
+            quantity: info.quantity,
+            price: info.price || info.gia,
+            author: info.author,
+            category: info.category
         });
 
         return createConfirmationCard(info);
@@ -263,6 +341,29 @@ function parseConfirmationData(confirmData) {
 function createConfirmationCard(info) {
     const orderId = `order_${Date.now()}`;
 
+    // Normalize field names - try multiple possible field names
+    const customerName = info.customer_name || info.name || info.ten || info.ho_ten || info.fullname || info.user_name || '';
+    const phoneNumber = info.phone || info.sdt || info.dien_thoai || info.mobile || info.telephone || '';
+    const bookTitle = info.book_title || info.title || info.sach || info.book || '';
+    const quantity = info.quantity || info.so_luong || info.amount || '1';
+    const address = info.address || info.dia_chi || info.location || '';
+    const price = info.price || info.gia || info.cost || info.thanh_tien || '';
+
+    // Create normalized order object for API
+    const normalizedOrder = {
+        book_id: info.book_id || info.id || '',
+        book_title: bookTitle,
+        author: info.author || info.tac_gia || '',
+        category: info.category || info.danh_muc || '',
+        quantity: quantity,
+        customer_name: customerName,
+        phone: phoneNumber,
+        address: address,
+        price: price
+    };
+
+    console.log('Normalized order for button:', normalizedOrder);
+
     return `
         <div class="confirmation-card" data-order-id="${orderId}">
             <div class="card-header">
@@ -271,25 +372,30 @@ function createConfirmationCard(info) {
             </div>
             <div class="card-body">
                 <div class="order-details">
-                    <div class="detail-row">
-                        <span class="label">📚 Sách:</span>
-                        <span class="value">${info.book_title || '-'}</span>
+                    <div class="book-info">
+                        <span class="book-label">📚</span>
+                        <span class="book-title">${bookTitle || 'Chưa xác định'}</span>
+                        <span class="quantity-badge">${quantity} cuốn</span>
                     </div>
-                    <div class="detail-row">
-                        <span class="label">📦 SL:</span>
-                        <span class="value">${info.quantity || '-'}</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="label">👤 Tên:</span>
-                        <span class="value">${info.customer_name || '-'}</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="label">📞 SĐT:</span>
-                        <span class="value">${info.phone || '-'}</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="label">📍 Địa chỉ:</span>
-                        <span class="value">${info.address || '-'}</span>
+                    <div class="customer-grid">
+                        <div class="info-item">
+                            <span class="info-label">👤</span>
+                            <span class="info-text">${customerName || 'Chưa có thông tin'}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">📞</span>
+                            <span class="info-text">${phoneNumber || 'Chưa có số điện thoại'}</span>
+                        </div>
+                        <div class="info-item address-item">
+                            <span class="info-label">📍</span>
+                            <span class="info-text">${address || 'Chưa có địa chỉ'}</span>
+                        </div>
+                        ${price ? `
+                        <div class="info-item price-item">
+                            <span class="info-label">💰</span>
+                            <span class="info-text">${price}</span>
+                        </div>
+                        ` : ''}
                     </div>
                 </div>
             </div>
@@ -298,7 +404,7 @@ function createConfirmationCard(info) {
                     <i class="fas fa-times"></i>
                     Hủy
                 </button>
-                <button class="btn-confirm" onclick="confirmOrder('${orderId}', ${JSON.stringify(info).replace(/"/g, '&quot;')})">
+                <button class="btn-confirm" onclick="confirmOrder('${orderId}', ${JSON.stringify(normalizedOrder).replace(/"/g, '&quot;')})">
                     <i class="fas fa-check"></i>
                     Xác nhận
                 </button>
@@ -403,14 +509,22 @@ function saveSettings() {
 function loadSettings() {
     const savedApiUrl = localStorage.getItem('chatbot_api_url');
 
-    if (savedApiUrl) {
+    // If saved URL is old format (contains chatbot_backend or localhost), reset to empty
+    if (savedApiUrl && !savedApiUrl.includes('chatbot_backend') && !savedApiUrl.includes('localhost')) {
         apiUrl = savedApiUrl;
+    } else {
+        // Use empty string for relative URLs (nginx proxy)
+        apiUrl = '';
+        // Clear old localStorage value
+        localStorage.removeItem('chatbot_api_url');
     }
 }
 
 // ===== Order Management Functions =====
 async function confirmOrder(orderId, orderInfo) {
     try {
+        console.log('Confirming order:', orderId, orderInfo);
+
         // Disable buttons during processing
         const card = document.querySelector(`[data-order-id="${orderId}"]`);
         if (card) {
@@ -421,54 +535,145 @@ async function confirmOrder(orderId, orderInfo) {
             });
         }
 
+        // Prepare order data for API
+        const orderData = {
+            book_id: parseInt(orderInfo.book_id || orderInfo.id || '0') || 0,
+            book_title: orderInfo.book_title || orderInfo.title || '',
+            author: orderInfo.author || orderInfo.tac_gia || '',
+            category: orderInfo.category || orderInfo.danh_muc || '',
+            quantity: parseInt(orderInfo.quantity || '1') || 1,
+            customer_name: orderInfo.customer_name || orderInfo.name || '',
+            phone: orderInfo.phone || orderInfo.sdt || '',
+            address: orderInfo.address || orderInfo.dia_chi || ''
+        };
+
+        // Validate required fields
+        if (!orderData.book_id || orderData.book_id === 0) {
+            console.error('Missing book_id in order data:', orderInfo);
+            showNotification('Thiếu thông tin ID sách. Vui lòng thử lại.', 'error');
+            // Re-enable buttons
+            if (card) {
+                const buttons = card.querySelectorAll('button');
+                buttons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                });
+            }
+            return;
+        }
+
+        if (!orderData.customer_name || !orderData.phone || !orderData.address) {
+            console.error('Missing required customer information:', orderData);
+            showNotification('Thiếu thông tin khách hàng. Vui lòng thử lại.', 'error');
+            // Re-enable buttons
+            if (card) {
+                const buttons = card.querySelectorAll('button');
+                buttons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                });
+            }
+            return;
+        }
+
+        console.log('Sending order data to API:', orderData);
+
         // Send confirmation to API
-        const response = await fetch(`${apiUrl}/api/v1/confirm-order`, {
+        const response = await fetch(`${apiUrl}/api/v1/orders/confirm`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                order_id: orderId,
-                user_id: userId,
-                order_info: orderInfo,
-                action: 'confirm'
-            })
+            body: JSON.stringify(orderData)
         });
 
-        let result = { success: true, message: 'Đơn hàng đã được xác nhận thành công!' };
+        const result = await response.json();
+        console.log('API response:', result);
 
-        if (response.ok) {
-            result = await response.json();
-        }
-
-        // Update UI
+        // Handle response and update UI
         if (card) {
-            if (result.success) {
+            if (response.ok && result.success) {
+                const orderDetails = result.order_details;
                 card.innerHTML = `
                     <div class="card-header success">
                         <i class="fas fa-check-circle"></i>
                         <h4>Đặt hàng thành công!</h4>
                     </div>
                     <div class="card-body">
-                        <p class="success-message">${result.message || 'Đơn hàng của bạn đã được xác nhận và đang được xử lý.'}</p>
-                        <p class="order-id">Mã đơn hàng: <strong>${orderId}</strong></p>
+                        <div class="success-content">
+                            <p class="success-message">
+                                <i class="fas fa-thumbs-up"></i>
+                                ${result.message || 'Đơn hàng của bạn đã được xác nhận thành công!'}
+                            </p>
+                            ${orderDetails ? `
+                            <div class="order-summary">
+                                <p class="order-id">📋 Mã đơn hàng: <strong>#${orderDetails.order_id}</strong></p>
+                                <p class="book-info">📚 ${orderDetails.book?.title} (${orderDetails.quantity} cuốn)</p>
+                                <p class="total-amount">💰 Tổng tiền: <strong>${orderDetails.total_amount?.toLocaleString('vi-VN')} VNĐ</strong></p>
+                                <p class="delivery-info">🚚 Giao hàng trong 2-3 ngày làm việc</p>
+                            </div>
+                            ` : ''}
+                        </div>
                     </div>
                 `;
             } else {
+                // Handle error response - restore card with retry option
+                const errorMsg = result.detail?.message || result.message || 'Có lỗi xảy ra khi xác nhận đơn hàng';
+
+                // Get the original order data from the card or button attributes
+                const confirmBtn = card.querySelector('.btn-confirm');
+                let originalOrderData = null;
+                if (confirmBtn) {
+                    try {
+                        // Extract order data from onclick attribute
+                        const onclickAttr = confirmBtn.getAttribute('onclick');
+                        const dataMatch = onclickAttr.match(/confirmOrder\([^,]+,\s*({.*})\)/);
+                        if (dataMatch) {
+                            // Decode HTML entities and parse JSON
+                            const decodedData = dataMatch[1].replace(/&quot;/g, '"');
+                            originalOrderData = JSON.parse(decodedData);
+                        }
+                    } catch (e) {
+                        console.error('Failed to extract original order data:', e);
+                    }
+                }
+
+                // Show error message and restore confirmation card with retry button
                 card.innerHTML = `
                     <div class="card-header error">
                         <i class="fas fa-exclamation-triangle"></i>
                         <h4>Lỗi xác nhận đơn hàng</h4>
                     </div>
                     <div class="card-body">
-                        <p class="error-message">${result.message || 'Có lỗi xảy ra khi xác nhận đơn hàng.'}</p>
+                        <p class="error-message">
+                            <i class="fas fa-times-circle"></i>
+                            ${errorMsg}
+                        </p>
+                        ${originalOrderData ? `
+                        <div class="order-retry-info">
+                            <p class="book-info">📚 ${originalOrderData.book_title}</p>
+                            <p class="customer-info">👤 ${originalOrderData.customer_name}</p>
+                        </div>
+                        ` : ''}
+                        <div class="retry-actions">
+                            <button class="btn-cancel" onclick="cancelOrder('${orderId}')">
+                                <i class="fas fa-times"></i>
+                                Hủy
+                            </button>
+                            <button class="btn-retry" onclick="retryConfirmOrder('${orderId}', ${originalOrderData ? JSON.stringify(originalOrderData).replace(/"/g, '&quot;') : 'null'})">
+                                <i class="fas fa-redo"></i>
+                                Thử lại xác nhận
+                            </button>
+                        </div>
                     </div>
                 `;
             }
         }
 
         // Show notification
-        showNotification(result.message || 'Đơn hàng đã được xác nhận!', result.success ? 'success' : 'error');
+        const isSuccess = response.ok && result.success;
+        const message = isSuccess ? result.message : (result.detail?.message || result.message);
+        showNotification(message || (isSuccess ? 'Đơn hàng đã được xác nhận!' : 'Có lỗi xảy ra'), isSuccess ? 'success' : 'error');
 
     } catch (error) {
         console.error('Error confirming order:', error);
@@ -486,47 +691,43 @@ async function confirmOrder(orderId, orderInfo) {
     }
 }
 
-async function cancelOrder(orderId) {
-    try {
-        const card = document.querySelector(`[data-order-id="${orderId}"]`);
+async function retryConfirmOrder(orderId, orderData) {
+    console.log('Retrying order confirmation:', orderId, orderData);
 
-        // Send cancel request to API
-        const response = await fetch(`${apiUrl}/api/v1/confirm-order`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                order_id: orderId,
-                user_id: userId,
-                action: 'cancel'
-            })
-        });
+    if (!orderData) {
+        console.error('No order data available for retry');
+        showNotification('Không có thông tin đơn hàng để thử lại. Vui lòng tạo đơn mới.', 'error');
+        return;
+    }
 
-        let result = { success: true, message: 'Đơn hàng đã được hủy.' };
+    // Simply call confirmOrder again with the same data
+    await confirmOrder(orderId, orderData);
+}
 
-        if (response.ok) {
-            result = await response.json();
-        }
+function cancelOrder(orderId) {
+    console.log('Cancelling order:', orderId);
 
-        // Update UI
-        if (card) {
-            card.innerHTML = `
-                <div class="card-header cancelled">
-                    <i class="fas fa-times-circle"></i>
-                    <h4>Đơn hàng đã hủy</h4>
-                </div>
-                <div class="card-body">
-                    <p class="cancel-message">${result.message || 'Đơn hàng đã được hủy thành công.'}</p>
-                </div>
-            `;
-        }
+    const card = document.querySelector(`[data-order-id="${orderId}"]`);
 
-        showNotification('Đơn hàng đã được hủy', 'info');
+    if (card) {
+        // Simply update UI to show cancelled state - no API call needed
+        card.innerHTML = `
+            <div class="card-header cancelled">
+                <i class="fas fa-times-circle"></i>
+                <h4>Đơn hàng đã hủy</h4>
+            </div>
+            <div class="card-body">
+                <p class="cancel-message">
+                    <i class="fas fa-info-circle"></i>
+                    Bạn đã hủy xác nhận đơn hàng này. Đơn hàng chưa được gửi đến hệ thống.
+                </p>
+            </div>
+        `;
 
-    } catch (error) {
-        console.error('Error cancelling order:', error);
-        showNotification('Không thể hủy đơn hàng. Vui lòng thử lại.', 'error');
+        showNotification('Đã hủy xác nhận đơn hàng', 'info');
+    } else {
+        console.error('Order card not found:', orderId);
+        showNotification('Không tìm thấy đơn hàng để hủy', 'error');
     }
 }
 
