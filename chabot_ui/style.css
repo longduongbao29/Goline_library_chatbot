@@ -231,6 +231,7 @@ body {
 
 .user-message {
     flex-direction: row-reverse;
+    justify-content: flex-end;
 }
 
 .user-message .message-avatar {
@@ -241,6 +242,12 @@ body {
 .message-content {
     flex: 1;
     max-width: calc(100% - 60px);
+}
+
+.user-message .message-content {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
 }
 
 .message-bubble {
