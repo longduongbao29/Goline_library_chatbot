@@ -113,7 +113,7 @@ class Configures:
         """Load database configuration from environment variables"""
         return DatabaseConfig(
             host=os.getenv("POSTGRES_HOST", "localhost"),
-            port=int(os.getenv("POSTGRES_INTERNAL_PORT", "1236")),
+            port=os.getenv("POSTGRES_INTERNAL_PORT", "1236"),
             user=os.getenv("POSTGRES_USER", "postgres"),
             password=os.getenv("POSTGRES_PASSWORD", "password"),
             name=os.getenv("POSTGRES_DB", "chatbot_db")
@@ -123,7 +123,7 @@ class Configures:
         """Load LLM configuration from environment variables"""
         return LLMConfig(
             provider=os.getenv("LLM_PROVIDER", "groq").lower(),
-            temperature=float(os.getenv("TEMPERATURE", "0.7")),
+            temperature=float(os.getenv("TEMPERATURE", 0.7)),
             groq_api_key=os.getenv("GROQ_API_KEY"),
             groq_model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
             openai_api_key=os.getenv("OPENAI_API_KEY"),
