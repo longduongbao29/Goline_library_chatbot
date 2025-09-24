@@ -6,3 +6,9 @@ langchain
 pydantic
 requests
 python-multipart
+langgraph   
+langchain-groq
+langchain-openai
+dotenv
+langgraph-checkpoint-postgres
+psycopg[binary,pool]

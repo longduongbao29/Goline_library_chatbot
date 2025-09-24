@@ -2,7 +2,6 @@
 PostgreSQL database connection and operations using SQLAlchemy
 """
 
-import os
 from typing import Optional, List, Dict, Any
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
@@ -10,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from contextlib import contextmanager
 
 from utils.logger import Logger
+from config.configures import config
 
 # Import our models
 from .models import Base, Book, Order, OrderStatus
@@ -23,20 +23,21 @@ class PostgresDB:
                  password: str = None, dbname: str = None, database_url: str = None):
         """
         Initialize PostgreSQL connection
-        Can use individual parameters or database_url
+        Can use individual parameters, database_url, or configuration defaults
         """
         if database_url:
             self.database_url = database_url
         else:
-            # Use environment variables as fallback
-            self.host = host or os.getenv('POSTGRES_HOST', 'localhost')
-            self.port = port or int(os.getenv('POSTGRES_PORT', 5432))
-            self.user = user or os.getenv('POSTGRES_USER', 'postgres')
-            self.password = password or os.getenv('POSTGRES_PASSWORD', 'password')
-            self.dbname = dbname or os.getenv('POSTGRES_DB', 'chatbot_db')
+            # Use provided parameters or fallback to configuration
+            db_config = config.database
+            self.host = host or db_config.host
+            self.port = port or db_config.port
+            self.user = user or db_config.user
+            self.password = password or db_config.password
+            self.dbname = dbname or db_config.name
             
             self.database_url = f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.dbname}"
-        
+        logger.debug(f"Database URL: {self.database_url}")
         self.engine = None
         self.SessionLocal = None
         
@@ -136,4 +137,19 @@ class PostgresDB:
         """Close database connection"""
         if self.engine:
             self.engine.dispose()
-            logger.info("Database connection closed")    
+    
+    @classmethod
+    def from_config(cls) -> 'PostgresDB':
+        """
+        Create PostgresDB instance using the global configuration
+        
+        Returns:
+            PostgresDB instance configured with settings from config
+        """
+        return cls(
+            host=config.database.host,
+            port=config.database.port,
+            user=config.database.user,
+            password=config.database.password,
+            dbname=config.database.name
+        )    

@@ -6,7 +6,7 @@ from pathlib import Path
 class Logger:
     """Simple logger class for easy logging configuration"""
     
-    def __init__(self, name: str = "chatbot", log_dir: str = "logs", log_file: str = None):
+    def __init__(self, name: str = "chatbot", log_dir: str = "logs", log_file: str = "backend.logs"):
         """
         Initialize logger
         
@@ -37,18 +37,32 @@ class Logger:
         # Clear existing handlers
         self.logger.handlers.clear()
         
-        # Get environment setting
-        environment = os.getenv('ENVIRONMENT', 'development').lower()
+        # Get environment setting - try config first, fallback to os.getenv
+        try:
+            from config.configures import config
+            environment = config.server.environment
+            log_level = config.server.log_level
+        except (ImportError, AttributeError):
+            # Fallback for cases where config isn't available yet
+            environment = os.getenv('ENVIRONMENT', 'development').lower()
+            log_level = os.getenv('LOG_LEVEL', 'info').lower()
         
-        # Set logging levels based on environment
-        if environment == 'production':
-            logger_level = logging.INFO
-            console_level = logging.INFO
-            file_level = logging.INFO
+        # Set logging levels based on environment and log_level config
+        level_mapping = {
+            'debug': logging.DEBUG,
+            'info': logging.INFO,
+            'warning': logging.WARNING,
+            'error': logging.ERROR,
+            'critical': logging.CRITICAL
+        }
+        
+        # Use configured log level if available, otherwise default by environment
+        if 'log_level' in locals() and log_level in level_mapping:
+            logger_level = console_level = file_level = level_mapping[log_level]
+        elif environment == 'production':
+            logger_level = console_level = file_level = logging.INFO
         else:  # development or any other environment
-            logger_level = logging.DEBUG
-            console_level = logging.DEBUG
-            file_level = logging.DEBUG
+            logger_level = console_level = file_level = logging.DEBUG
         
         # Set logger level
         self.logger.setLevel(logger_level)

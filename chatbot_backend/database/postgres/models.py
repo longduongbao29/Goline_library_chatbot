@@ -61,6 +61,7 @@ class Order(Base):
     address = Column(String(500), nullable=False)
     book_id = Column(Integer, ForeignKey('books.book_id'), nullable=False)
     quantity = Column(Integer, nullable=False, default=1)
+    total_amount = Column(Float, nullable=False)
     status = Column(Enum(OrderStatus), nullable=False, default=OrderStatus.PENDING)
     order_date = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

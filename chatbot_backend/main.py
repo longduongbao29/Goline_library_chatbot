@@ -1,34 +1,24 @@
-"""
-FastAPI Chatbot Backend
-Main application entry point
-"""
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
-import os
-
-# Import API routes
 from api.v1.completions import router as completions_router
-
-# Import logger
 from utils.logger import Logger
+from config.configures import config
 
-# Initialize logger
 logger = Logger(__name__).get_logger()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
-    logger.info("🚀 Chatbot backend starting up...")
-    logger.info("📚 Bookstore chatbot API is ready!")
+    logger.info("Chatbot backend starting up...")
+    logger.info("Bookstore chatbot API is ready!")
     
     yield
     
     # Shutdown  
-    logger.info("📴 Chatbot backend shutting down...")
+    logger.info("Chatbot backend shutting down...")
 
 # Create FastAPI application
 app = FastAPI(
@@ -43,7 +33,7 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
+    allow_origins=["*"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -63,17 +53,15 @@ async def health():
     }
 
 if __name__ == "__main__":
-    # Get configuration from environment variables
-    host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", 1234))
-    reload = os.getenv("ENVIRONMENT", "development") == "development"
+    # Get configuration from config class
+    logger.info("Loading configuration...")
     
-    logger.info(f"Starting server on {host}:{port}")
+    logger.info(f"Starting server on {config.server.host}:{config.server.port}")
     
     uvicorn.run(
         "main:app",
-        host=host,
-        port=port,
-        reload=reload,
-        log_level="info"
+        host=config.server.host,
+        port=config.server.port,
+        reload=config.server.reload,
+        log_level=config.server.log_level
     )

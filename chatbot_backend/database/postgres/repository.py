@@ -31,6 +31,8 @@ class BookRepository:
                 )
                 session.add(book)
                 session.flush()
+                # Detach book from session before returning
+                session.expunge(book)
                 return book
         except Exception as e:
             logger.error(f"Failed to create book: {e}")
@@ -40,7 +42,11 @@ class BookRepository:
         """Get book by ID"""
         try:
             with self.db.get_session() as session:
-                return session.query(Book).filter(Book.book_id == book_id).first()
+                book = session.query(Book).filter(Book.book_id == book_id).first()
+                if book:
+                    # Detach the object from session so it can be accessed outside
+                    session.expunge(book)
+                return book
         except Exception as e:
             logger.error(f"Failed to get book by ID {book_id}: {e}")
             return None
@@ -52,7 +58,11 @@ class BookRepository:
                 query = session.query(Book).order_by(Book.book_id)
                 if limit:
                     query = query.limit(limit).offset(offset)
-                return query.all()
+                books = query.all()
+                # Detach all books from session so they can be accessed outside
+                for book in books:
+                    session.expunge(book)
+                return books
         except Exception as e:
             logger.error(f"Failed to get all books: {e}")
             return []
@@ -87,7 +97,11 @@ class BookRepository:
                 if conditions:
                     query = query.filter(and_(*conditions))
                 
-                return query.order_by(Book.title).all()
+                books = query.order_by(Book.title).all()
+                # Detach all books from session so they can be accessed outside
+                for book in books:
+                    session.expunge(book)
+                return books
         except Exception as e:
             logger.error(f"Failed to search books: {e}")
             return []
@@ -170,6 +184,8 @@ class OrderRepository:
                 book.stock -= quantity
                 
                 session.flush()
+                # Detach order from session before returning
+                session.expunge(order)
                 return order
                 
         except Exception as e:
@@ -180,7 +196,14 @@ class OrderRepository:
         """Get order by ID with book details"""
         try:
             with self.db.get_session() as session:
-                return session.query(Order).filter(Order.order_id == order_id).first()
+                order = session.query(Order).filter(Order.order_id == order_id).first()
+                if order:
+                    # Ensure relationships are loaded before expunging
+                    _ = order.book  # Access the relationship to load it
+                    session.expunge(order)
+                    if order.book:
+                        session.expunge(order.book)
+                return order
         except Exception as e:
             logger.error(f"Failed to get order by ID {order_id}: {e}")
             return None
@@ -196,7 +219,15 @@ class OrderRepository:
                 if phone:
                     query = query.filter(Order.phone == phone)
                 
-                return query.order_by(desc(Order.order_date)).all()
+                orders = query.order_by(desc(Order.order_date)).all()
+                # Detach all orders from session
+                for order in orders:
+                    # Load relationships before expunging
+                    _ = order.book
+                    session.expunge(order)
+                    if order.book:
+                        session.expunge(order.book)
+                return orders
         except Exception as e:
             logger.error(f"Failed to get orders by customer: {e}")
             return []
@@ -205,7 +236,15 @@ class OrderRepository:
         """Get orders by status"""
         try:
             with self.db.get_session() as session:
-                return session.query(Order).filter(Order.status == status).order_by(desc(Order.order_date)).all()
+                orders = session.query(Order).filter(Order.status == status).order_by(desc(Order.order_date)).all()
+                # Detach all orders from session
+                for order in orders:
+                    # Load relationships before expunging
+                    _ = order.book
+                    session.expunge(order)
+                    if order.book:
+                        session.expunge(order.book)
+                return orders
         except Exception as e:
             logger.error(f"Failed to get orders by status: {e}")
             return []
