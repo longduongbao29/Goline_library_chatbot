@@ -50,7 +50,8 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - chatbot_net
     restart: unless-stopped
@@ -60,12 +61,18 @@ services:
       timeout: ${HEALTH_CHECK_TIMEOUT}
       retries: ${HEALTH_CHECK_RETRIES}
       start_period: ${DB_START_PERIOD}
-
+  adminer:
+    image: adminer:latest
+    container_name: adminer
+    ports:
+      - "1237:8080"
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+    networks:
+      - chatbot_net
+    restart: unless-stopped
 networks:
   chatbot_net:
     driver: bridge
     name: ${NETWORK_NAME}
-
-volumes:
-  postgres_data:
-    driver: local
